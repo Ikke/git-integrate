@@ -1,0 +1,122 @@
+#!/bin/sh
+
+integration_file="$(git rev-parse --show-toplevel)/.integration_status"
+
+colorize() {
+    # prefer terminal safe colored and bold text when tput is supported
+    if tput setaf 0 >/dev/null 2>&1; then
+        ALL_OFF="$(tput sgr0)"
+        BOLD="$(tput bold)"
+        BLUE="$(tput setaf 4)"
+        GREEN="$(tput setaf 2)"
+        RED="$(tput setaf 1)"
+        YELLOW="$(tput setaf 3)"
+    else
+        ALL_OFF="\e[0m"
+        BOLD="\e[1m"
+        BLUE="\e[34m"
+        GREEN="\e[32m"
+        RED="\e[31m"
+        YELLOW="\e[33m"
+    fi
+    readonly ALL_OFF BOLD BLUE GREEN RED YELLOW
+}
+
+usage () {
+    cat <<-EOH >&2
+	usage: git integrate add <branch> [-u <upstream>]
+	EOH
+}
+
+exit_usage () {
+    test ! -z "$1" && echo "$1" >&2
+    usage
+    exit "${2-1}"
+}
+
+exit_error () {
+    echo "$1" >&2
+    exit 1
+}
+
+strip_remote() {
+    for remote in $(git remote); do
+        case $1 in $remote/*)
+            echo "${1#$remote/}";
+            return 0;;
+        esac
+    done
+    return 1
+}
+
+branch_exists () {
+    git rev-parse -q --verify "$1" >/dev/null
+    return $?
+}
+
+cmd_add () {
+    upstream=
+
+    opts=$(getopt -q "u:" "$@") || exit_usage "error: unknown option or missing argument"
+    eval set -- "$opts"
+
+    while true; do
+        case $1 in
+            -u) upstream=$2; shift ;;
+            --) shift; break ;;
+        esac
+        shift
+    done
+
+    branch=$1
+
+    if test -z "$branch"; then
+        if test -z "$upstream"; then
+            exit_error "error: branch '$branch' does not exist and no upstream given"
+        fi
+
+        branch=$(strip_remote "$upstream") \
+            || exit_error "error: unable to derive branch name from upstream"
+
+    fi
+
+    if ! branch_exists "$branch"; then
+        if test -z "$upstream" || ! branch_exists "$upstream"; then
+            exit_error "error: needing to create branch and no valid upstream given: $upstream"
+        fi
+
+        git branch "$branch" "$upstream" || exit_error "fatal: could not create branch: $branch"
+        echo "$branch|new|" >>"$integration_file"
+    else
+        :
+    fi
+
+}
+
+if [ $# -lt 1 ]; then
+    usage
+    exit;
+fi
+
+colorize
+
+integration_branch=$(git config --get integration.branch) || {
+    echo "fatal: configuration value integration.branch not set"
+    exit 1
+}
+
+base_branch=$(git config --get integration.base) || {
+    echo "fatal: configuration value integration.base not set"
+    exit 1
+}
+
+command=$1; shift;
+
+case $command in
+    add)
+        cmd_add "$@"
+        ;;
+    *)
+        usage
+        ;;
+esac
