@@ -24,7 +24,8 @@ colorize() {
 
 usage () {
     cat <<-EOH >&2
-	usage: git integrate add <branch> [-u <upstream>]
+	usage: git intagrate init [-b <base>] <branch>
+	    or git integrate add <branch> [-u <upstream>]
 	    or git integrate status
 	EOH
 }
@@ -81,6 +82,35 @@ iterate_branches () {
     done <"$integration_file"
 }
 
+cmd_init () {
+    base=
+    opts=$(getopt -q "b:" "$@") || exit_usage "error: unknown option or missing argument"
+    eval set -- "$opts"
+
+    while true; do
+        case $1 in
+            -b) base=$2; shift ;;
+            --) shift; break ;;
+        esac
+        shift
+    done
+
+    if test $# -lt 1; then
+        exit_error "error: required argument <branch> missing"
+    fi
+
+    branch=$1
+
+    git config integration.branch "$branch"
+
+    if test -n "$base"; then
+        git config integration.base "$base"
+    fi
+
+    git branch "$branch" "$base"
+
+    touch "$integration_file" || exit_error "fatal: could not create '$integration_file'"
+}
 
 cmd_add () {
     upstream=
@@ -191,17 +221,29 @@ fi
 
 colorize
 
-integration_branch=$(git config --get integration.branch) || {
-    echo "fatal: configuration value integration.branch not set"
-    exit 1
-}
+setup () {
+    integration_branch=$(git config --get integration.branch) || {
+        echo "fatal: configuration value integration.branch not set"
+        exit 1
+    }
 
-base_branch=$(git config --get integration.base) || {
-    echo "fatal: configuration value integration.base not set"
-    exit 1
+    branch_exists "$integration_branch" \
+        || exit_error "error: integration branch '$integration_branch' does not exist"
+
+
+    base_branch=$(git config --get integration.base) || {
+        echo "fatal: configuration value integration.base not set"
+        exit 1
+    }
+
+    branch_exists "$base_branch" \
+        || exit_error "error: base branch '$base_branch' does not exist"
+
 }
 
 command=$1; shift;
+
+test "$command" != "init" && setup
 
 case $command in
     add)
@@ -209,6 +251,9 @@ case $command in
         ;;
     status)
         cmd_status "$@"
+        ;;
+    init)
+        cmd_init "$@"
         ;;
     *)
         usage
