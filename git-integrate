@@ -26,6 +26,7 @@ usage () {
     cat <<-EOH >&2
 	usage: git intagrate init [-b <base>] <branch>
 	    or git integrate add <branch> [-u <upstream>]
+	    or git integrate run
 	    or git integrate status
 	    or git integrate rewind
 	EOH
@@ -214,11 +215,33 @@ cmd_status () {
     fi
 }
 
-cmd_merge () {
-    while IFS="|" read -r branch integration_status message;
-    do
-        :
-    done
+iterate_branches_merge () {
+    branch=$1
+    integration_status=$2
+    message=$3
+
+    branch_status "$branch"
+
+    case "$integration_status,$branch_merged" in
+        *,t|conflict,*) return $ITERATE_CONTINUE
+            ;;
+    esac
+
+    echo "${YELLOW}Merging branch ${BLUE}$branch${ALL_OFF}"
+    git merge -q --no-ff "$branch" -m "merge: integrating $branch"
+
+    if test $? -ne 0; then
+        echo "${RED}Conflicts, breaking${ALL_OFF}"
+        return $ITERATE_BREAK
+    fi
+}
+
+cmd_run () {
+    git checkout "$integration_branch" 2>/dev/null || \
+        exit_error "error: could not checkout '$integration_branch'"
+
+    iterate_branches "iterate_branches_merge"
+}
 
 cmd_rewind () {
     git checkout -B "$integration_branch" "$base_branch"
@@ -267,6 +290,9 @@ case $command in
         ;;
     rewind)
         cmd_rewind "$@"
+        ;;
+    run)
+        cmd_run "$@"
         ;;
     *)
         usage
