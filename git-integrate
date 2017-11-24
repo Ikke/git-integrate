@@ -83,6 +83,14 @@ iterate_branches () {
     done <"$integration_file"
 }
 
+branch_status () {
+    branch="$1"
+
+    branch_up_to_date=$(is_ancestor "$branch" "$branch@{u}")
+    branch_merged=$(is_ancestor "$integration_branch" "$branch")
+    branch_on_base=$(is_ancestor "$branch" "$base_branch")
+}
+
 cmd_init () {
     base=
     opts=$(getopt -q "b:" "$@") || exit_usage "error: unknown option or missing argument"
@@ -162,9 +170,7 @@ iterate_branches_status () {
     status=
 
     branch_exists "$branch" || exit_error "branch '$branch' does not exist"
-    branch_up_to_date=$(is_ancestor "$branch" "$branch@{u}")
-    branch_merged=$(is_ancestor "$integration_branch" "$branch")
-    branch_on_base=$(is_ancestor "$branch" "$base_branch")
+    branch_status "$branch"
 
     case "$branch_on_base,$branch_merged,$branch_up_to_date,$integration_status" in
         *,*,f,*)
