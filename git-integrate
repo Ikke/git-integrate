@@ -27,6 +27,7 @@ usage () {
 	usage: git intagrate init [-b <base>] <branch>
 	    or git integrate add <branch> [-u <upstream>]
 	    or git integrate status
+	    or git integrate rewind
 	EOH
 }
 
@@ -212,6 +213,9 @@ cmd_merge () {
     do
         :
     done
+
+cmd_rewind () {
+    git checkout -B "$integration_branch" "$base_branch"
 }
 
 if [ $# -lt 1 ]; then
@@ -254,6 +258,9 @@ case $command in
         ;;
     init)
         cmd_init "$@"
+        ;;
+    rewind)
+        cmd_rewind "$@"
         ;;
     *)
         usage
