@@ -24,7 +24,7 @@ colorize() {
 
 usage () {
     cat <<-EOH >&2
-	usage: git intagrate init [-b <base>] <branch>
+	usage: git intagrate init [-b <base>] [-n <next>] <branch>
 	    or git integrate add <branch> [-u <upstream>]
 	    or git integrate run
 	    or git integrate status
@@ -90,16 +90,23 @@ branch_status () {
     branch_up_to_date=$(is_ancestor "$branch" "$branch@{u}")
     branch_merged=$(is_ancestor "$integration_branch" "$branch")
     branch_on_base=$(is_ancestor "$branch" "$base_branch")
+    merged_with_next=
+
+    if branch_exists "$next_branch"; then
+        merged_with_next="$(is_ancestor "$next_branch" "$branch")"
+    fi
 }
 
 cmd_init () {
     base=
-    opts=$(getopt -q "b:" "$@") || exit_usage "error: unknown option or missing argument"
+    next=
+    opts=$(getopt -q "b:n:" "$@") || exit_usage "error: unknown option or missing argument"
     eval set -- "$opts"
 
     while true; do
         case $1 in
             -b) base=$2; shift ;;
+            -n) next=$2; shift ;;
             --) shift; break ;;
         esac
         shift
@@ -115,6 +122,10 @@ cmd_init () {
 
     if test -n "$base"; then
         git config integration.base "$base"
+    fi
+
+    if test -n "$next"; then
+        git config integration.next "$next"
     fi
 
     git branch "$branch" "$base"
@@ -173,24 +184,28 @@ iterate_branches_status () {
     branch_exists "$branch" || exit_error "branch '$branch' does not exist"
     branch_status "$branch"
 
-    case "$branch_on_base,$branch_merged,$branch_up_to_date,$integration_status" in
-        *,*,f,*)
+    case "$branch_on_base,$branch_merged,$branch_up_to_date,$integration_status,$merged_with_next" in
+        *,*,f,*,*)
             color=${YELLOW}
             status="out of date"
             ;;
-        f,*,*,*)
+        *,*,*,*,t)
+            color=${GREEN}
+            status="M: $next_branch"
+            ;;
+        f,*,*,*,*)
             color=${YELLOW}
             status="not based on $base_branch"
             ;;
-        *,t,*,*)
+        *,t,*,*,*)
             color=${BLUE}
-            status="merged"
+            status="M: $integration_branch"
             ;;
-        *,*,*,new)
+        *,*,*,new,*)
             status="new"
             color=${GREEN}
             ;;
-        *,*,*,conflict)
+        *,*,*,conflict,*)
             status="conflict"
             color=${RED}
             ;;
@@ -237,14 +252,22 @@ iterate_branches_merge () {
 }
 
 cmd_run () {
-    git checkout "$integration_branch" 2>/dev/null || \
-        exit_error "error: could not checkout '$integration_branch'"
+    if test "$(git rev-parse --abbrev-ref HEAD)" = "$integration_branch"; then
+        git checkout "$integration_branch" >/dev/null 2>&1 || \
+            exit_error "error: could not checkout '$integration_branch'"
+    fi
+
+    if test -n "$next_branch"; then
+        iterate_branches_merge "$next_branch" "new" ""
+    fi
 
     iterate_branches "iterate_branches_merge"
 }
 
 cmd_rewind () {
-    git checkout -B "$integration_branch" "$base_branch"
+    git checkout -B "$integration_branch" "$base_branch" >/dev/null 2>&1 \
+        && echo "Rewound '$integration_branch' to '$base_branch'" \
+        || echo "${RED}Could not rewind '$integration_branch'${ALL_OFF}"
 }
 
 if [ $# -lt 1 ]; then
@@ -271,6 +294,12 @@ setup () {
 
     branch_exists "$base_branch" \
         || exit_error "error: base branch '$base_branch' does not exist"
+
+    next_branch=$(git config --get integration.next) && {
+        branch_exists "$next_branch" \
+            || exit_error "error: next branch '$next_branch' does not exist"
+    }
+
 
 }
 
